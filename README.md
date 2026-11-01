@@ -23,7 +23,7 @@ Les quatre niveaux de détail du menu Project (Preview, Med, Hi, X Hi), en NTSC 
 
 ## Texture de l'eau
 
-L'option « Add texture » utilise une image de vaguelettes (384×180, 2 plans de bits) stockée dans l'exécutable. Elle n'est pas incluse ici : sans elle, la page dessine des vaguelettes approximatives.
+L'option « Add texture » utilise une image de vaguelettes (384×180, 2 plans de bits) stockée dans l'exécutable. Elle n'est pas incluse ici : sans elle, la page dessine une mer procédurale de remplacement (reflets fins à l'horizon, vaguelettes plus grandes au premier plan), d'aspect proche mais différente.
 
 La même texture, à l'octet près, se trouve dans la démo librement diffusée de Scene Generator (`SceneGenDemo`, Fred Fish disk 299, disponible sur Aminet). Pour un rendu exact, on peut charger dans la page le fichier `water_tex.bin` (17 280 octets) extrait de son propre exemplaire, version complète ou démo.
 
