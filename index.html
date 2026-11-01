@@ -695,16 +695,26 @@ function vnoise(x, y) {
   const a = hash2(ix, iy), b = hash2(ix + 1, iy), c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
   return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
 }
+// 1D value noise along x, one independent strand per band of rows: streaks stay strictly horizontal
+function vnoise1(x, band) {
+  const ix = Math.floor(x), f = x - ix, sf = f * f * (3 - 2 * f);
+  const a = hash2(ix, band * 7919 + 13), b = hash2(ix + 1, band * 7919 + 13);
+  return a + (b - a) * sf;
+}
+function streak(u, v, oct) {             // one strand per band of rows, swelling in the band's middle: horizontal lenses
+  const w = v + oct * 0.5, i = Math.floor(w), f = w - i;
+  const prof = Math.sin(Math.PI * f);      // 0 at the band edges, 1 in the middle
+  return 0.5 + (vnoise1(u + oct * 31.7, i * 3 + oct) - 0.5) * (0.35 + 0.65 * prof);
+}
 function rippleProc(x, y) {
   const s = 1 + y * 0.02;                        // ripple size grows towards the viewer
-  const u = x / (7 * s), v = y / (0.8 * s);      // calm water: long, flat, horizontal ripples
-  let n = vnoise(u, v) * 0.55 + vnoise(u * 2.1 + 17, v * 1.9) * 0.3 + vnoise(u * 4.3 + 3, v * 3.7 + 9) * 0.15;
-  const d = (y & 1) ? ((x & 1) ? 0.02 : -0.02) : ((x & 1) ? -0.02 : 0.02);   // ordered dither, no slant
+  const u = x / (7 * s), v = y / (0.9 * s);      // calm water: long, flat, horizontal ripples
+  const n = streak(u, v, 0) * 0.55 + streak(u * 2.1, v * 1.7, 1) * 0.3 + streak(u * 4.3, v * 2.9, 2) * 0.15;
   const t = Math.min(1, y / 150);                // 0 at the horizon, 1 near the viewer
   const glint = 0.66 + 0.04 * t, mid = 0.59 + 0.02 * t, dark = 0.25 + 0.04 * t;
-  if (n + d > glint) return 2;
-  if (n + d > mid) return 1;
-  if (n + d < dark) return 0;
+  if (n > glint) return 2;
+  if (n > mid) return 1;
+  if (n < dark) return 0;
   return 3;
 }
 function waterTexture(ras, hgt, horizon, P, tex) {
