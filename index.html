@@ -696,13 +696,12 @@ function vnoise(x, y) {
   return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
 }
 function rippleProc(x, y) {
-  const s = 1 + y * 0.022;                       // ripple size grows towards the viewer
-  const u = x / (2.6 * s), v = y / (0.75 * s);   // ripples are much wider than tall
-  let n = vnoise(u, v) * 0.45 + vnoise(u * 2.2 + 17, v * 2.0) * 0.35 + vnoise(u * 4.4 + 3, v * 3.9 + 9) * 0.2;
-  n += Math.sin(v * 1.9 + vnoise(u * 0.35, v * 0.2) * 5) * 0.07;   // faint parallel swells
-  const d = (((x + y) & 1) ? 0.025 : -0.025);    // checkerboard dither on the thresholds
+  const s = 1 + y * 0.02;                        // ripple size grows towards the viewer
+  const u = x / (7 * s), v = y / (0.8 * s);      // calm water: long, flat, horizontal ripples
+  let n = vnoise(u, v) * 0.55 + vnoise(u * 2.1 + 17, v * 1.9) * 0.3 + vnoise(u * 4.3 + 3, v * 3.7 + 9) * 0.15;
+  const d = (y & 1) ? ((x & 1) ? 0.02 : -0.02) : ((x & 1) ? -0.02 : 0.02);   // ordered dither, no slant
   const t = Math.min(1, y / 150);                // 0 at the horizon, 1 near the viewer
-  const glint = 0.47 + 0.20 * t, mid = 0.37 + 0.13 * t, dark = 0.25 + 0.15 * t;
+  const glint = 0.66 + 0.04 * t, mid = 0.59 + 0.02 * t, dark = 0.25 + 0.04 * t;
   if (n + d > glint) return 2;
   if (n + d > mid) return 1;
   if (n + d < dark) return 0;
