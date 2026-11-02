@@ -177,6 +177,7 @@ textarea{font-family:var(--mono);font-size:12.5px;line-height:1.5;min-height:22r
         <input type="color" id="picker" hidden>
         <div class="row"><button id="bDefPal" type="button">Palette par défaut du programme</button></div>
         <p class="note">Clique une couleur pour la modifier. Les valeurs sont arrondies aux 4096 teintes de l'Amiga (4 bits par composante).</p>
+        <p class="note" id="palState"></p>
       </section>
 
       <section class="panel" aria-labelledby="h-tt">
@@ -933,11 +934,12 @@ for (const [name,x,y,z] of LIGHT_PRESETS) {
 for (let i=0;i<32;i++){ const b=document.createElement('button'); b.className='sw'; b.type='button'; b.dataset.i=i; b.setAttribute('aria-label','Couleur '+i); $('sw').appendChild(b); }
 const hex3 = v => v.toString(16).padStart(3,'0');
 const rgb = v => [((v>>8)&15)*17,((v>>4)&15)*17,(v&15)*17];
-function paintSwatches(){ [...$('sw').children].forEach((b,i)=>{ const [r,g,bb]=rgb(state.pal[i]); b.style.background='rgb('+r+','+g+','+bb+')'; b.title=i+' : '+((state.pal[i]>>8)&15)+','+((state.pal[i]>>4)&15)+','+(state.pal[i]&15); }); }
+function paintSwatches(){ $('palState').textContent = state.palAuto ? 'Palette par défaut du programme : elle suit la case Neige, comme dans l\u2019original (rampe 15 à 22 en gris quand la neige est cochée).' : 'Palette personnalisée : elle ne change plus quand tu coches des cases.'; [...$('sw').children].forEach((b,i)=>{ const [r,g,bb]=rgb(state.pal[i]); b.style.background='rgb('+r+','+g+','+bb+')'; b.title=i+' : '+((state.pal[i]>>8)&15)+','+((state.pal[i]>>4)&15)+','+(state.pal[i]&15); }); }
 let pickIdx = 0;
 $('sw').addEventListener('click', e => { const b=e.target.closest('.sw'); if(!b) return; pickIdx=+b.dataset.i; const [r,g,bb]=rgb(state.pal[pickIdx]); $('picker').value='#'+[r,g,bb].map(x=>x.toString(16).padStart(2,'0')).join(''); $('picker').click(); });
-$('picker').addEventListener('input', e => { const v=e.target.value; const c=[1,3,5].map(o=>Math.round(parseInt(v.substr(o,2),16)/17)); state.pal[pickIdx]=(c[0]<<8)|(c[1]<<4)|c[2]; paintSwatches(); writeText(); repaint(); });
-$('bDefPal').onclick = () => { state.pal = defaultPalette(); paintSwatches(); writeText(); repaint(); };
+$('picker').addEventListener('input', e => { const v=e.target.value; const c=[1,3,5].map(o=>Math.round(parseInt(v.substr(o,2),16)/17)); state.pal[pickIdx]=(c[0]<<8)|(c[1]<<4)|c[2]; state.palAuto=samePal(state.pal,defaultPalette()); paintSwatches(); writeText(); repaint(); });
+$('bDefPal').onclick = () => { state.pal = defaultPalette(); state.palAuto = true; paintSwatches(); writeText(); repaint(); };
+function samePal(a,b){ for(let i=0;i<32;i++) if(a[i]!==b[i]) return false; return true; }
 function defaultPalette(){ const p=DEFAULT_PAL.map(h=>parseInt(h,16)); if(state.flags.S) for(let i=15;i<23;i++){const g=i-8;p[i]=(g<<8)|(g<<4)|g;} return p; }
 
 // ---------- examples
@@ -986,6 +988,7 @@ function applyText(txt, fromExample){
   Object.assign(state,s);
   $('ttErr').textContent = errs.length ? 'Lignes ignorées : '+errs.slice(0,4).join(' · ')+(errs.length>4?' …':'') : '';
   if (fromExample) $('tt').value = toText();
+  state.palAuto = samePal(state.pal, defaultPalette());
   syncControls(); paintSwatches(); schedule();
 }
 let ttTimer=0;
@@ -1036,7 +1039,8 @@ for(const [k,set] of pairs){
 }
 $('seed').addEventListener('change',e=>{ let v=Math.max(0,Math.min(2147483647,Math.round(+e.target.value||0))); e.target.value=v; state.seed=v; userChange(); });
 $('bRand').onclick=()=>{ state.seed=Math.floor(Math.random()*65536); $('seed').value=state.seed; userChange(); };
-for(const [k] of FLAG_DEFS) $('f'+k).addEventListener('change',e=>{ state.flags[k]=e.target.checked?1:0; userChange(); });
+// Like the original, the default palette rewrites colours 15-22 from the snow flag; a hand-edited palette is left alone.
+for(const [k] of FLAG_DEFS) $('f'+k).addEventListener('change',e=>{ state.flags[k]=e.target.checked?1:0; if(k==='S'&&state.palAuto){ state.pal=defaultPalette(); paintSwatches(); repaint(); } userChange(); });
 $('autoG').onchange=e=>{state.autoG=e.target.checked?1:0;syncControls();userChange();};
 $('autoS').onchange=e=>{state.autoS=e.target.checked?1:0;syncControls();userChange();};
 $('lace').onchange=e=>{state.lace=e.target.checked?1:0;userChange();};
