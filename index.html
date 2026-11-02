@@ -854,7 +854,11 @@ function waterTextureNative(ras, hgtRef, horizon, P, tex) {
         if (yy >= 180) yy = 358 - yy; if (yy < 0) yy = 0;
         const o = yy * 48 + (xv >> 3), bit = 7 - (xv & 7);
         v = ((tex[o] >> bit) & 1) | (((tex[o + 0x21c0] >> bit) & 1) << 1);
-      } else v = rippleProc(xv, P.lace ? yy >> 1 : yy);
+      } else {
+        // procedural sea is evaluated at full resolution (continuous coordinates), not resampled
+        const yf = y * hgtRef / H - horizon;
+        v = rippleProc(x * 384 / W, P.lace ? yf / 2 : yf);
+      }
       if (v !== 3) px[y * W + x] = WATER_PEN[v];
     }
   }
