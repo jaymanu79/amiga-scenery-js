@@ -994,7 +994,22 @@ $('tt').addEventListener('input', () => { clearTimeout(ttTimer); ttTimer=setTime
 // ---------- controls <-> state
 const pairs = [['height',v=>state.height=v],['water',v=>state.water=v],['snow',v=>state.snow=v],['green',v=>state.green=v],
   ['lx',v=>state.light[0]=v],['ly',v=>state.light[1]=v],['lz',v=>state.light[2]=v]];
+// Water slider spans only the levels that change the picture: from the lowest to the highest
+// terrain point the camera frames, for the current seed and height (about 1 ms to compute).
+let wrKey='';
+function updWaterRange(){
+  const key=state.seed+'/'+state.height; if(key===wrKey) return; wrKey=key;
+  const P=params(), map=new Int16Array(257*257), G={snow:P.snow,green:P.green}, st={};
+  SG.cameraSetup(map,257,257,P,G,st);
+  let mn=1e9, mx=-1e9;
+  for(let r=0;r<257;r++){ const d=(256-r)*32+3200, q=Math.floor(d*256/0x5914); let a=128-q; if(a!==0) a--; let b=a+2*q+3; if(a<0) a=0; if(b>257) b=257;
+    for(let c=a;c<b;c++){ const h=map[r*257+c]; if(h<mn) mn=h; if(h>mx) mx=h; } }
+  const m=Math.max(10,Math.round((mx-mn)*0.04));
+  const lo=Math.floor(mn*5/4)-m, hi=Math.ceil(mx*5/4)+m;
+  const r=$('water_r'); r.min=lo; r.max=hi; r.value=Math.max(lo,Math.min(hi,state.water));
+}
 function syncControls(){
+  updWaterRange();
   $('seed').value=state.seed;
   const vals={height:state.height,water:state.water,snow:state.snow,green:state.green,lx:state.light[0],ly:state.light[1],lz:state.light[2]};
   for(const [k] of pairs){ $(k).value=vals[k]; $(k+'_r').value=vals[k]; }
