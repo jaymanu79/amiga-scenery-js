@@ -149,8 +149,8 @@ textarea{font-family:var(--mono);font-size:12.5px;line-height:1.5;min-height:22r
       <section class="panel" aria-labelledby="h-lvl">
         <h2 id="h-lvl">Niveaux</h2>
         <label class="f"><span class="k">Eau<small>WATER</small></span><input type="range" id="water_r" min="-9999" max="3000" step="1"><input type="number" id="water" min="-9999" max="9999"></label>
-        <label class="f"><span class="k">Neige<small>SNOW</small></span><input type="range" id="snow_r" min="0" max="5000" step="1"><input type="number" id="snow" min="0" max="9999"></label>
-        <label class="f"><span class="k">Verdure<small>GREEN</small></span><input type="range" id="green_r" min="0" max="5000" step="1"><input type="number" id="green" min="0" max="9999"></label>
+        <label class="f"><span class="k">Neige<small>SNOW</small></span><input type="range" id="snow_r" min="0" max="5000" step="1"><input type="number" id="snow" min="-9999" max="9999"></label>
+        <label class="f"><span class="k">Verdure<small>GREEN</small></span><input type="range" id="green_r" min="0" max="5000" step="1"><input type="number" id="green" min="-9999" max="9999"></label>
         <div class="flags">
           <label><input type="checkbox" id="autoG">Verdure auto <code>AUTO G</code></label>
           <label><input type="checkbox" id="autoS">Neige auto <code>AUTO S</code></label>
@@ -994,7 +994,7 @@ $('tt').addEventListener('input', () => { clearTimeout(ttTimer); ttTimer=setTime
 // ---------- controls <-> state
 const pairs = [['height',v=>state.height=v],['water',v=>state.water=v],['snow',v=>state.snow=v],['green',v=>state.green=v],
   ['lx',v=>state.light[0]=v],['ly',v=>state.light[1]=v],['lz',v=>state.light[2]=v]];
-// Water slider spans only the levels that change the picture: from the lowest to the highest
+// Water, snow and green sliders span only the levels that change the picture: from the lowest to the highest
 // terrain point the camera frames, for the current seed and height (about 1 ms to compute).
 let wrKey='';
 function updWaterRange(){
@@ -1006,7 +1006,13 @@ function updWaterRange(){
     for(let c=a;c<b;c++){ const h=map[r*257+c]; if(h<mn) mn=h; if(h>mx) mx=h; } }
   const m=Math.max(10,Math.round((mx-mn)*0.04));
   const lo=Math.floor(mn*5/4)-m, hi=Math.ceil(mx*5/4)+m;
-  const r=$('water_r'); r.min=lo; r.max=hi; r.value=Math.max(lo,Math.min(hi,state.water));
+  const setR=(id,a,b,v)=>{ const r=$(id); r.min=a; r.max=b; r.value=Math.max(a,Math.min(b,v)); };
+  setR('water_r',lo,hi,state.water);
+  // Snow line: a flat cell is snowy when height > SNOW*4/5 (steep slopes raise it), so same scale as water.
+  setR('snow_r',lo,hi,state.snow);
+  // Green line: green where height/4 + jitter(0..63) stays under GREEN/5 + 64 (minus a slope term),
+  // i.e. up to about GREEN*4/5 + 256: the useful range starts 256 lower.
+  setR('green_r',Math.floor((mn-256)*5/4)-m,hi,state.green);
 }
 function syncControls(){
   updWaterRange();
