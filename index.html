@@ -832,8 +832,9 @@ function cloudsNative(map, ras, hgtRef, P, st, MASKS) {
         if (pass === 1) {
           const yr = Math.floor(yv);
           let k, mask;
-          if (P.lace) { k = (yr >> 6) * 2; if (k > 6) k = 6; mask = MASKS.m64[y & 63]; }
-          else { k = (yr >> 5) * 2; if (k > 6) k = 6; mask = MASKS.m32[y & 31]; }
+          // gradient masks follow the Amiga row (one 64- or 32-row ramp per band), bits follow the screen pixel
+          if (P.lace) { k = (yr >> 6) * 2; if (k > 6) k = 6; mask = MASKS.m64[yr & 63]; }
+          else { k = (yr >> 5) * 2; if (k > 6) k = 6; mask = MASKS.m32[yr & 31]; }
           const pen = ((mask >>> (31 - (x & 31))) & 1) ? SKY_PEN[k] : SKY_PEN[k + 1];
           if (c > pen) px[y * W + x] = pen;
         }
