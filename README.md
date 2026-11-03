@@ -20,6 +20,7 @@ Les quatre niveaux de détail du menu Project (Preview, Med, Hi, X Hi), en NTSC 
 - rendu plein écran à la résolution native, avec des niveaux de détail supplémentaires calculés automatiquement ;
 - export PNG indexé, et export Amiga (image IFF ILBM et icône `.info` avec les tooltypes, à ouvrir dans Scene Generator) ;
 - explorateur des 65 536 graines possibles, avec des critères de choix.
+- mode **Hicolor** (hors original) : sans tramage, avec 15 niveaux de lumière au lieu de 8, un dégradé de ciel continu et des nuages doux, toujours à partir de la palette de 32 couleurs.
 
 ## Texture de l'eau
 

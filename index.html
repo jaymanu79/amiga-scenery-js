@@ -140,6 +140,12 @@ textarea{font-family:var(--mono);font-size:12.5px;line-height:1.5;min-height:22r
             <button data-v="ntsc" aria-pressed="true">NTSC</button><button data-v="pal" aria-pressed="false">PAL</button>
           </div>
         </div>
+        <div class="f" style="display:grid;grid-template-columns:7.6rem minmax(0,1fr);gap:10px;align-items:center">
+          <span class="k" style="font-weight:600">Couleurs</span>
+          <div class="seg" role="group" aria-label="Couleurs">
+            <button data-c="amiga" aria-pressed="true">Amiga 32</button><button data-c="hicolor" aria-pressed="false">Hicolor</button>
+          </div>
+        </div>
         <label class="f"><span class="k">Graine<small>SEED</small></span>
           <input type="number" id="seed" min="0" max="2147483647" step="1" style="text-align:left">
           <button id="bRand" type="button">Aléatoire</button></label>
@@ -424,8 +430,8 @@ function lightTable(L) {
 
 // ---------------------------------------------------------------- raster helpers
 class Raster {
-  constructor(w, h) { this.w = w; this.h = h; this.px = new Uint8Array(w * h); this.edge = new Int16Array(Math.max(4096, 8 * (w + h) + 64)); this.lo = new Int16Array(Math.max(4096, h + 2)); this.hi = new Int16Array(Math.max(4096, h + 2)); }
-  plot(x, y, fg, bg) { if (x < 0 || y < 0 || x >= this.w || y >= this.h) return; this.px[y * this.w + x] = ((x + y) & 1) ? bg : fg; }
+  constructor(w, h, hi) { this.w = w; this.h = h; this.px = new Uint8Array(w * h); if (hi) { this.px2 = new Uint8Array(w * h); this.wt = new Uint8Array(w * h); } this.edge = new Int16Array(Math.max(4096, 8 * (w + h) + 64)); this.lo = new Int16Array(Math.max(4096, h + 2)); this.hi = new Int16Array(Math.max(4096, h + 2)); }
+  plot(x, y, fg, bg) { if (x < 0 || y < 0 || x >= this.w || y >= this.h) return; const i = y * this.w + x; if (this.px2) { this.px[i] = fg; this.px2[i] = bg; this.wt[i] = fg === bg ? 0 : 128; return; } this.px[i] = ((x + y + (this.par | 0)) & 1) ? bg : fg; }
   span(x, y, len, fg, bg) {
     const o = y * this.w;
     for (let i = 0; i < len; i++) { const xx = x + i; if (xx >= 0 && xx < this.w) this.px[o + xx] = ((xx + y) & 1) ? bg : fg; }
@@ -465,8 +471,9 @@ class Raster {
       if (y < 0 || y >= this.h) continue;
       let x0_ = a, x1_ = a + d; if (x0_ < 0) x0_ = 0; if (x1_ >= W) x1_ = W - 1;
       const o = y * W;
-      if (same) px.fill(fg, o + x0_, o + x1_ + 1);
-      else for (let x = x0_; x <= x1_; x++) px[o + x] = ((x + y) & 1) ? bg : fg;
+      if (this.px2) { px.fill(fg, o + x0_, o + x1_ + 1); this.px2.fill(bg, o + x0_, o + x1_ + 1); this.wt.fill(same ? 0 : 128, o + x0_, o + x1_ + 1); }
+      else if (same) px.fill(fg, o + x0_, o + x1_ + 1);
+      else { const pr = this.par | 0; for (let x = x0_; x <= x1_; x++) px[o + x] = ((x + y + pr) & 1) ? bg : fg; }
     }
   }
 }
@@ -583,7 +590,7 @@ function renderBand(fine, W, H, zstart, R) {
       }
     }
     c0 += base; c1 += base;
-    if (W > 0x101) c1 = c0;
+    if (W > 0x101 && !R.keepDither) c1 = c0;
     lastFg = c0; lastBg = c1;
     ras.tri(v[0], v[1], v[2], v[3], v[4], v[5], c0, c1);
   }
@@ -732,7 +739,7 @@ function waterTexture(ras, hgt, horizon, P, tex) {
         const o = yy * 48 + (x >> 3), bit = 7 - (x & 7);
         v = ((tex[o] >> bit) & 1) | (((tex[o + 0x21c0] >> bit) & 1) << 1);
       } else v = rippleProc(x, P.lace ? yy >> 1 : yy);
-      if (v !== 3) px[y * W + x] = WATER_PEN[v];
+      if (v !== 3) { px[y * W + x] = WATER_PEN[v]; if (ras.px2) { ras.px2[y * W + x] = WATER_PEN[v]; ras.wt[y * W + x] = 0; } }
     }
   }
 }
@@ -748,18 +755,22 @@ function renderScene(P, opt) {
   const detail = opt.detail || 'xhi';
   const scrW = 384, hgt = (P.pal ? 280 : 240) * (P.lace ? 2 : 1);
   const G = { snow: P.snow, green: P.green }; const st = {};
-  const ras = new Raster(scrW, hgt); ras.px.fill(4);
-  const R = { ras, P, G, table: lightTable(P.light), hgt };
+  const HI = !!opt.hicolor;
+  const ras = new Raster(scrW, hgt, HI); ras.px.fill(4); if (HI) ras.px2.fill(4);
+  ras.par = opt.par | 0;
+  const R = { ras, P, G, table: lightTable(P.light), hgt, keepDither: !!opt.keepDither || HI };
   if (detail === 'preview') {
     const m33 = new Int16Array(0x21 * 0x21);
     cameraSetup(m33, 0x21, 0x21, P, G, st);
     R.rng = st.r; renderBand(m33, 0x21, 0x21, 0, R);
+    if (HI) return hicolorFinish(null, ras, hgt, P, st, MASKS, opt.palRGB, G, false);
     return { px: ras.px, w: scrW, h: hgt, G };
   }
   const map = new Int16Array(257 * 257);
   cameraSetup(map, 257, 257, P, G, st);
   if (detail === 'med') {
     R.rng = st.r; renderBand(map, 0x101, 0x101, 0, R);
+    if (HI) { waterTexture(ras, hgt, G.horizon, P, tex); return hicolorFinish(map, ras, hgt, P, st, MASKS, opt.palRGB, G, P.fC); }
     if (P.fC) clouds(map, ras, hgt, P, st, MASKS);
     waterTexture(ras, hgt, G.horizon, P, tex);
     return { px: ras.px, w: scrW, h: hgt, G };
@@ -787,6 +798,7 @@ function renderScene(P, opt) {
     const o = (FH - 1) * fineW;
     for (let i = 0; i < fineW; i++) { if (fine[o + i] === 0) fine[o + i] = 1; saved[i] = fine[o + i]; }
   }
+  if (HI) { waterTexture(ras, hgt, G.horizon, P, tex); if (P.fC) cameraSetup(map, 257, 257, P, G, st); return hicolorFinish(map, ras, hgt, P, st, MASKS, opt.palRGB, G, P.fC); }
   if (P.fC) { cameraSetup(map, 257, 257, P, G, st); clouds(map, ras, hgt, P, st, MASKS); }
   waterTexture(ras, hgt, G.horizon, P, tex);
   return { px: ras.px, w: scrW, h: hgt, G };
@@ -861,7 +873,7 @@ function waterTextureNative(ras, hgtRef, horizon, P, tex) {
         const yf = y * hgtRef / H - horizon;
         v = rippleProc(x * 384 / W, P.lace ? yf / 2 : yf);
       }
-      if (v !== 3) px[y * W + x] = WATER_PEN[v];
+      if (v !== 3) { px[y * W + x] = WATER_PEN[v]; if (ras.px2) { ras.px2[y * W + x] = WATER_PEN[v]; ras.wt[y * W + x] = 0; } }
     }
   }
 }
@@ -872,8 +884,9 @@ function renderNative(P, opt) {
   const G = { snow: P.snow, green: P.green }; const st = {};
   const map = new Int16Array(257 * 257);
   cameraSetup(map, 257, 257, P, G, st);
-  const ras = new Raster(w, h); ras.px.fill(4);
-  const R = { ras, P, G, table: lightTable(P.light), hgt: h, wide: true, slopeShift: k };
+  const HI = !!opt.hicolor;
+  const ras = new Raster(w, h, HI); ras.px.fill(4); if (HI) ras.px2.fill(4);
+  const R = { ras, P, G, table: lightTable(P.light), hgt: h, wide: true, slopeShift: k, keepDither: HI };
   st.r = P.seed & 0xffff;
   const CW = 0x101, coarse = map; coarse.fill(0);
   fractal(coarse, CW, CW, 0x80, P.height * 4, st); unseam(coarse, CW); smooth9(coarse, CW, CW);
@@ -891,12 +904,72 @@ function renderNative(P, opt) {
     for (let i = 0; i < fineW; i++) { if (fine[o + i] === 0) fine[o + i] = 1; saved[i] = fine[o + i]; }
     if (opt.onProgress) opt.onProgress(++n / 9);
   }
+  if (HI) { waterTextureNative(ras, hgtRef, G.horizon, P, tex); if (P.fC) cameraSetup(map, 257, 257, P, G, st); const o = hicolorFinish(map, ras, hgtRef, P, st, MASKS, opt.palRGB, G, P.fC); if (opt.onProgress) opt.onProgress(1); o.k = k; o.gridW = fineW; return o; }
   if (P.fC) { cameraSetup(map, 257, 257, P, G, st); cloudsNative(map, ras, hgtRef, P, st, MASKS); }
   waterTextureNative(ras, hgtRef, G.horizon, P, tex);
   if (opt.onProgress) opt.onProgress(1);
   return { px: ras.px, w, h, k, gridW: fineW };
 }
 module.exports.renderNative = renderNative;
+
+// ================================================================ hicolor (not part of the original)
+// Removes the 32-colour dithering: terrain shows the true mid-tone between the two shades of each
+// checkerboard (15 light levels instead of 8), the sky is a continuous gradient and the clouds are
+// soft. Output is RGBA built from the 32-colour palette (palRGB: 32 x [r,g,b]).
+function popcount32(v) { v = v - ((v >>> 1) & 0x55555555); v = (v & 0x33333333) + ((v >>> 2) & 0x33333333); return (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24; }
+function hicolorFinish(map, ras, hgtRef, P, st, MASKS, pal, G, withClouds) {
+  const W = ras.w, H = ras.h, px = ras.px, px2 = ras.px2, wt = ras.wt, n = W * H;
+  const rgb = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = pal[px[i]], b = pal[px2[i]], f = wt[i] / 255;
+    rgb[3 * i] = a[0] + (b[0] - a[0]) * f; rgb[3 * i + 1] = a[1] + (b[1] - a[1]) * f; rgb[3 * i + 2] = a[2] + (b[2] - a[2]) * f;
+  }
+  if (withClouds && map) {
+    let d = 1;
+    for (let x = 0; x < W; x++) while (px[d * W + x] === 4 && d < H - 1) d++;
+    const mix = (i, c, t) => { rgb[3 * i] += (c[0] - rgb[3 * i]) * t; rgb[3 * i + 1] += (c[1] - rgb[3 * i + 1]) * t; rgb[3 * i + 2] += (c[2] - rgb[3 * i + 2]) * t; };
+    // continuous sky gradient: the density of each row of the original dither mask becomes a blend weight
+    for (let y = 0; y < d; y++) {
+      const yr = Math.floor(y * hgtRef / H);
+      let k, dens;
+      if (P.lace) { k = (yr >> 6) * 2; if (k > 6) k = 6; dens = popcount32(MASKS.m64[yr & 63]) / 32; }
+      else { k = (yr >> 5) * 2; if (k > 6) k = 6; dens = popcount32(MASKS.m32[yr & 31]) / 32; }
+      const ps = Math.min(4, SKY_PEN[k]), pc = Math.min(4, SKY_PEN[k + 1]);
+      const cs = pal[ps], cc = pal[pc];
+      const col = [cc[0] + (cs[0] - cc[0]) * dens, cc[1] + (cs[1] - cc[1]) * dens, cc[2] + (cs[2] - cc[2]) * dens];
+      for (let x = 0; x < W; x++) { const i = y * W + x; if (px[i] === 4) { rgb[3 * i] = col[0]; rgb[3 * i + 1] = col[1]; rgb[3 * i + 2] = col[2]; } }
+    }
+    // soft clouds: same density field, sampled bilinearly without the per-pixel noise, blended by density
+    const sv = Math.max(1, Math.round(d * hgtRef / H));
+    for (const rowOff of [0, 0x9e]) {
+      let m = idiv(P.water, 5);
+      for (let r = rowOff; r < rowOff + 0x60; r++) for (let c = 0; c < sv; c++) { const v = map[r * 257 + c]; if (v > m) m = v; }
+      if (m < 20) continue;
+      const thr = idiv(m * 13, 20), d20 = Math.max(1, idiv(m, 20)), bias = m / 40;
+      let inc = idiv(P.lace ? 0x202 : 0x101, sv); if (inc > 2) inc = 2;
+      const perRow = P.lace ? inc / 2 : inc;
+      for (let y = 0; y < d; y++) {
+        const cf = (y * hgtRef / H) * perRow, c0 = Math.floor(cf), fc = cf - c0;
+        if (c0 >= 0x100) break;
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x; if (px[i] !== 4) continue;
+          const rf = x * 96 / W, r0 = Math.floor(rf), fr = rf - r0, r1 = Math.min(r0 + 1, 0x5f);
+          const A = (r0 + rowOff) * 257, B = (r1 + rowOff) * 257;
+          const top = map[A + c0] + (map[A + c0 + 1] - map[A + c0]) * fc, bot = map[B + c0] + (map[B + c0 + 1] - map[B + c0]) * fc;
+          let v = top + (bot - top) * fr + bias; if (v > m) v = m;
+          const f = (v - thr) / d20;
+          if (f <= -1) continue;
+          const alpha = Math.min(1, f + 1), fi = Math.max(0, f), i0 = Math.min(11, Math.floor(fi)), i1 = Math.min(11, i0 + 1), t = fi - Math.floor(fi);
+          const ca = pal[CLOUD_COL[i0]], cb = pal[CLOUD_COL[i1]];
+          mix(i, [ca[0] + (cb[0] - ca[0]) * t, ca[1] + (cb[1] - ca[1]) * t, ca[2] + (cb[2] - ca[2]) * t], alpha);
+        }
+      }
+    }
+  }
+  const rgba = new Uint8ClampedArray(n * 4);
+  for (let i = 0; i < n; i++) { rgba[4 * i] = rgb[3 * i]; rgba[4 * i + 1] = rgb[3 * i + 1]; rgba[4 * i + 2] = rgb[3 * i + 2]; rgba[4 * i + 3] = 255; }
+  return { rgba, px: ras.px, w: W, h: H, G };
+}
 module.exports.nativeLevelFor = nativeLevelFor;
 
 window.SG=module.exports;})();
@@ -916,7 +989,7 @@ const FLAG_DEFS = [['S','Neige'],['W','Eau'],['C','Nuages'],['G','Verdure'],['Y'
 const $ = id => document.getElementById(id);
 
 const state = { seed:59021, height:1500, water:-1000, snow:350, green:1000, light:[17,-18,16],
-  flags:{S:1,W:1,C:1,G:1,Y:1,R:0,B:0,T:0}, autoG:0, autoS:0, lace:1, vid:0, detail:'xhi', pal:DEFAULT_PAL.map(h=>parseInt(h,16)) };
+  flags:{S:1,W:1,C:1,G:1,Y:1,R:0,B:0,T:0}, autoG:0, autoS:0, lace:1, vid:0, colors:'amiga', detail:'xhi', pal:DEFAULT_PAL.map(h=>parseInt(h,16)) };
 let tex = null, lastImg = null, exName = '';
 
 // ---------- flags UI
@@ -938,8 +1011,8 @@ const rgb = v => [((v>>8)&15)*17,((v>>4)&15)*17,(v&15)*17];
 function paintSwatches(){ $('palState').textContent = state.palAuto ? 'Palette par défaut du programme : elle suit la case Neige, comme dans l\u2019original (rampe 15 à 22 en gris quand la neige est cochée).' : 'Palette personnalisée : elle ne change plus quand tu coches des cases.'; [...$('sw').children].forEach((b,i)=>{ const [r,g,bb]=rgb(state.pal[i]); b.style.background='rgb('+r+','+g+','+bb+')'; b.title=i+' : '+((state.pal[i]>>8)&15)+','+((state.pal[i]>>4)&15)+','+(state.pal[i]&15); }); }
 let pickIdx = 0;
 $('sw').addEventListener('click', e => { const b=e.target.closest('.sw'); if(!b) return; pickIdx=+b.dataset.i; const [r,g,bb]=rgb(state.pal[pickIdx]); $('picker').value='#'+[r,g,bb].map(x=>x.toString(16).padStart(2,'0')).join(''); $('picker').click(); });
-$('picker').addEventListener('input', e => { const v=e.target.value; const c=[1,3,5].map(o=>Math.round(parseInt(v.substr(o,2),16)/17)); state.pal[pickIdx]=(c[0]<<8)|(c[1]<<4)|c[2]; state.palAuto=samePal(state.pal,defaultPalette()); paintSwatches(); writeText(); repaint(); });
-$('bDefPal').onclick = () => { state.pal = defaultPalette(); state.palAuto = true; paintSwatches(); writeText(); repaint(); };
+$('picker').addEventListener('input', e => { const v=e.target.value; const c=[1,3,5].map(o=>Math.round(parseInt(v.substr(o,2),16)/17)); state.pal[pickIdx]=(c[0]<<8)|(c[1]<<4)|c[2]; state.palAuto=samePal(state.pal,defaultPalette()); paintSwatches(); writeText(); repaint(); if(state.colors==='hicolor') schedule(); });
+$('bDefPal').onclick = () => { state.pal = defaultPalette(); state.palAuto = true; paintSwatches(); writeText(); repaint(); if(state.colors==='hicolor') schedule(); };
 function samePal(a,b){ for(let i=0;i<32;i++) if(a[i]!==b[i]) return false; return true; }
 function defaultPalette(){ const p=DEFAULT_PAL.map(h=>parseInt(h,16)); if(state.flags.S) for(let i=15;i<23;i++){const g=i-8;p[i]=(g<<8)|(g<<4)|g;} return p; }
 
@@ -956,7 +1029,7 @@ function toText(){
   L.push('SEED='+state.seed,'HEIGHT='+state.height,'LIGHT='+state.light.join(' '),
     'FLAGS='+FLAG_DEFS.map(f=>f[0]).filter(k=>state.flags[k]).join(''),
     'WATER='+state.water,'SNOW='+state.snow,'GREEN='+state.green,
-    'AUTO='+(state.autoG?'G':'')+(state.autoS?'S':''),'LACE='+(state.lace?'YES':'NO'),'VIDEO='+(state.vid?'PAL':'NTSC'),'DETAIL='+DKEY[state.detail]);
+    'AUTO='+(state.autoG?'G':'')+(state.autoS?'S':''),'LACE='+(state.lace?'YES':'NO'),'VIDEO='+(state.vid?'PAL':'NTSC'),'COLORS='+(state.colors==='hicolor'?'HICOLOR':'AMIGA'),'DETAIL='+DKEY[state.detail]);
   state.pal.forEach((v,i)=>L.push('col'+String(i).padStart(2,'0')+'='+rgbTxt(v)));
   return L.join('\n');
 }
@@ -980,6 +1053,7 @@ function applyText(txt, fromExample){
       case 'FLAGS': { const up=val.toUpperCase(); for(const k of flagOrder) s.flags[k]=up.includes(k)?1:0; break; }
       case 'AUTO': { const up=val.toUpperCase(); s.autoG=up.includes('G')?1:0; s.autoS=up.includes('S')?1:0; break; }
       case 'LACE': s.lace=/^Y/i.test(val)?1:0; break;
+      case 'COLORS': if(/^HI/i.test(val)) s.colors='hicolor'; else if(/^AMIGA/i.test(val)) s.colors='amiga'; else errs.push(line); break;
       case 'VIDEO': if(/^PAL$/i.test(val)) s.vid=1; else if(/^NTSC$/i.test(val)) s.vid=0; else errs.push(line); break;
       case 'DETAIL': { const d={PREVIEW:'preview',MED:'med',HI:'hi',XHI:'xhi'}[val.toUpperCase().replace(/[\s_-]/g,'')]; if(d) s.detail=d; else errs.push(line); break; }
       case 'FILETYPE': case 'PICTURE': break;
@@ -1025,6 +1099,8 @@ function syncControls(){
   for(const [k] of pairs){ $(k).value=vals[k]; $(k+'_r').value=vals[k]; }
   for(const [k] of FLAG_DEFS) $('f'+k).checked=!!state.flags[k];
   $('autoG').checked=!!state.autoG; $('autoS').checked=!!state.autoS; $('lace').checked=!!state.lace;
+  document.querySelectorAll('[data-c]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.c===state.colors));
+  $('bAmiga').disabled=state.colors==='hicolor'; $('bAmiga').title=state.colors==='hicolor'?'L\u2019export Amiga n\u2019existe qu\u2019en 32 couleurs : repasse en « Amiga 32 »':'Image IFF et icône avec les tooltypes, à ouvrir dans Scene Generator sur un Amiga';
   document.querySelectorAll('[data-v]').forEach(b=>b.setAttribute('aria-pressed',(b.dataset.v==='pal')===!!state.vid));
   document.querySelectorAll('[data-d]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.d===state.detail));
   let hit='';
@@ -1045,6 +1121,7 @@ for(const [k] of FLAG_DEFS) $('f'+k).addEventListener('change',e=>{ state.flags[
 $('autoG').onchange=e=>{state.autoG=e.target.checked?1:0;syncControls();userChange();};
 $('autoS').onchange=e=>{state.autoS=e.target.checked?1:0;syncControls();userChange();};
 $('lace').onchange=e=>{state.lace=e.target.checked?1:0;userChange();};
+document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{state.colors=b.dataset.c;syncControls();userChange();});
 document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{state.vid=b.dataset.v==='pal'?1:0;syncControls();userChange();});
 document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{state.detail=b.dataset.d;syncControls();userChange();});
 $('bRender').onclick=()=>render();
@@ -1065,8 +1142,8 @@ let worker=null, wJob=0, wBusy=false, wStart=0, wPending=null;
 function makeWorker(){
   try{
     const src='self.window=self;\n'+document.getElementById('sg-engine').textContent+
-      '\nself.onmessage=function(e){var d=e.data,t0=performance.now();try{var r=SG.renderScene(d.P,{masks:d.masks,tex:d.tex,detail:d.detail});'+
-      'var ms=performance.now()-t0;self.postMessage({id:d.id,px:r.px,w:r.w,h:r.h,ms:ms},[r.px.buffer]);}catch(err){self.postMessage({id:d.id,error:String(err)});}};';
+      '\nself.onmessage=function(e){var d=e.data,t0=performance.now();try{var r=SG.renderScene(d.P,{masks:d.masks,tex:d.tex,detail:d.detail,hicolor:d.hicolor,palRGB:d.palRGB});'+
+      'var ms=performance.now()-t0;if(r.rgba)self.postMessage({id:d.id,rgba:r.rgba,px:r.px,w:r.w,h:r.h,ms:ms},[r.rgba.buffer,r.px.buffer]);else self.postMessage({id:d.id,px:r.px,w:r.w,h:r.h,ms:ms},[r.px.buffer]);}catch(err){self.postMessage({id:d.id,error:String(err)});}};';
     const w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
     w.onmessage=onWorkerDone;
     w.onerror=()=>{ worker=null; wBusy=false; };
@@ -1075,13 +1152,14 @@ function makeWorker(){
 }
 worker=makeWorker();
 function job(){ const d=state.detail;
-  return { P:params(), masks:MASKS, tex:tex?tex.slice():null, detail:d, label:DNAME[d]+' · '+(state.vid?'PAL':'NTSC')+(state.lace?' entrelacé':'') }; }
+  const hc=state.colors==='hicolor';
+  return { P:params(), masks:MASKS, tex:tex?tex.slice():null, detail:d, hicolor:hc, palRGB:state.pal.map(rgb), label:DNAME[d]+(hc?' · hicolor':'')+' · '+(state.vid?'PAL':'NTSC')+(state.lace?' entrelacé':'') }; }
 function send(j){ j.id=++wJob; wBusy=true; wStart=performance.now(); const {label,...msg}=j; worker._label=label; worker.postMessage(msg); }
 function onWorkerDone(e){
   const d=e.data; wBusy=false;
   if(d.id!==wJob) return;
   const label=worker._label;
-  if(d.error) console.error(d.error); else showResult({px:d.px,w:d.w,h:d.h}, d.ms, label);
+  if(d.error) console.error(d.error); else showResult({px:d.px,rgba:d.rgba,w:d.w,h:d.h}, d.ms, label);
   if(wPending){ const j=wPending; wPending=null; send(j); $('busy').hidden=false; }
 }
 function render(){
@@ -1094,7 +1172,7 @@ function render(){
   }
   const t0=performance.now();
   let r;
-  try { r=SG.renderScene(j.P,{masks:MASKS,tex:tex,detail:j.detail}); }
+  try { r=SG.renderScene(j.P,{masks:MASKS,tex:tex,detail:j.detail,hicolor:j.hicolor,palRGB:j.palRGB}); }
   catch(e){ $('ms').textContent='erreur'; $('busy').hidden=true; console.error(e); return; }
   showResult(r, performance.now()-t0, j.label);
 }
@@ -1107,6 +1185,7 @@ function showResult(r, dt, label){
   repaint();
 }
 function toImageData(r){
+  if(r.rgba) return new ImageData(new Uint8ClampedArray(r.rgba),r.w,r.h);
   const id=new ImageData(r.w,r.h); const lut=state.pal.map(rgb);
   for(let i=0;i<r.px.length;i++){ const c=lut[r.px[i]]; id.data[4*i]=c[0]; id.data[4*i+1]=c[1]; id.data[4*i+2]=c[2]; id.data[4*i+3]=255; }
   return id;
@@ -1173,8 +1252,8 @@ function natTarget(){
 function natLevelName(k){ return k?'X Hi +'+k:'X Hi'; }
 function natMakeWorker(){
   const src='self.window=self;\n'+document.getElementById('sg-engine').textContent+
-    '\nself.onmessage=function(e){var d=e.data,t0=performance.now();try{var r=SG.renderNative(d.P,{w:d.w,h:d.h,k:d.k,masks:d.masks,tex:d.tex,onProgress:function(f){self.postMessage({id:d.id,progress:f});}});'+
-    'self.postMessage({id:d.id,px:r.px,w:r.w,h:r.h,k:r.k,gridW:r.gridW,ms:performance.now()-t0},[r.px.buffer]);}catch(err){self.postMessage({id:d.id,error:String(err)});}};';
+    '\nself.onmessage=function(e){var d=e.data,t0=performance.now();try{var r=SG.renderNative(d.P,{w:d.w,h:d.h,k:d.k,masks:d.masks,tex:d.tex,hicolor:d.hicolor,palRGB:d.palRGB,onProgress:function(f){self.postMessage({id:d.id,progress:f});}});'+
+    'var tr=r.rgba?[r.rgba.buffer,r.px.buffer]:[r.px.buffer];self.postMessage({id:d.id,px:r.px,rgba:r.rgba,w:r.w,h:r.h,k:r.k,gridW:r.gridW,ms:performance.now()-t0},tr);}catch(err){self.postMessage({id:d.id,error:String(err)});}};';
   return new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
 }
 function natDraw(){
@@ -1212,10 +1291,10 @@ async function natOpen(){
     natWorker.onmessage=e=>{ const d=e.data; if(d.id!==natJob) return;
       if(d.progress!==undefined){ $('natFill').style.width=Math.round(d.progress*100)+'%'; return; }
       if(d.error){ $('natProgTxt').textContent='Erreur de calcul'; console.error(d.error); return; }
-      done({px:d.px,w:d.w,h:d.h,k:d.k,gridW:d.gridW},d.ms); };
-    natWorker.postMessage({id,P,w:t.w,h:t.h,k,masks:MASKS,tex:tex?tex.slice():null});
+      done({px:d.px,rgba:d.rgba,w:d.w,h:d.h,k:d.k,gridW:d.gridW},d.ms); };
+    natWorker.postMessage({id,P,w:t.w,h:t.h,k,masks:MASKS,tex:tex?tex.slice():null,hicolor:state.colors==='hicolor',palRGB:state.pal.map(rgb)});
   }catch(e){
-    const t0=performance.now(); const r=SG.renderNative(P,{w:t.w,h:t.h,k,masks:MASKS,tex}); done(r,performance.now()-t0);
+    const t0=performance.now(); const r=SG.renderNative(P,{w:t.w,h:t.h,k,masks:MASKS,tex,hicolor:state.colors==='hicolor',palRGB:state.pal.map(rgb)}); done(r,performance.now()-t0);
   }
 }
 function natClose(){
@@ -1232,7 +1311,7 @@ window.addEventListener('resize',()=>{ if(!nat.hidden) natFit(); });
 $('natPng').onclick=async()=>{
   if(!natImg||!downloads) return; $('natMsg').textContent='';
   const name=(exName||('scene-'+state.seed))+'-'+natImg.w+'x'+natImg.h+'.png';
-  try{ const blob=await pngIndexed(natImg); await downloads.save({filename:name,data:blob}); $('natMsg').textContent='Enregistré'; }
+  try{ const blob=natImg.rgba?await pngRGB(natImg):await pngIndexed(natImg); await downloads.save({filename:name,data:blob}); $('natMsg').textContent='Enregistré'; }
   catch(e){ const c=e&&e.code; $('natMsg').textContent=c==='declined'?'Annulé':'Export indisponible ici'; }
 };
 
@@ -1333,6 +1412,7 @@ async function zlib(raw){
   for(let i=0;i<n;i++){ const ch=raw.subarray(i*65535,Math.min(raw.length,(i+1)*65535)); out[o++]=i===n-1?1:0; out[o++]=ch.length&255; out[o++]=ch.length>>8; out[o++]=(~ch.length)&255; out[o++]=((~ch.length)>>8)&255; out.set(ch,o); o+=ch.length; }
   const ad=adler32(raw); out[o++]=ad>>>24; out[o++]=(ad>>>16)&255; out[o++]=(ad>>>8)&255; out[o++]=ad&255; return out.subarray(0,o);
 }
+function pngRGB(r){ return new Promise((res,rej)=>{ const c=document.createElement('canvas'); c.width=r.w; c.height=r.h; c.getContext('2d').putImageData(toImageData(r),0,0); c.toBlob(b=>b?res(b):rej(new Error('png')),'image/png'); }); }
 async function pngIndexed(r){
   const raw=new Uint8Array((r.w+1)*r.h); for(let y=0;y<r.h;y++){ raw[y*(r.w+1)]=0; raw.set(r.px.subarray(y*r.w,(y+1)*r.w),y*(r.w+1)+1); }
   const idat=await zlib(raw);
@@ -1435,7 +1515,7 @@ $('bAmiga').onclick=async()=>{
 $('bPng').onclick=async()=>{
   if(!lastImg||!downloads) return; $('pngMsg').textContent='';
   const name=(exName||('scene-'+state.seed))+'.png';
-  try{ const blob=await pngIndexed(lastImg); await downloads.save({filename:name,data:blob}); $('pngMsg').textContent='Enregistré : '+name; }
+  try{ const blob=lastImg.rgba?await pngRGB(lastImg):await pngIndexed(lastImg); await downloads.save({filename:name,data:blob}); $('pngMsg').textContent='Enregistré : '+name; }
   catch(e){ const c=e&&e.code; $('pngMsg').textContent = c==='declined'?'Enregistrement annulé.':c==='rate_limited'?'Une demande est déjà ouverte.':'Export indisponible ici.'; if(c==='unavailable'||c==='not_granted'||c==='capability_disabled'||c==='capability_removed') $('bPng').hidden=true; }
 };
 
